@@ -3,4 +3,8 @@ gpt-settings.talon
 /docs/_build
 .ruff_cache/
 .mypy_cache/
+.pytest_cache/
+__pycache__/
+
+node_modules/
 /private

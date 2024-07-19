@@ -1,12 +1,14 @@
 import base64
 import os
-import platform
-import re
 from typing import Optional, Tuple
 
 from talon import actions, app, clip, settings
 
 from .modelTypes import Data, Headers, Tool
+
+""""
+All functions in this this file have impure dependencies on either the model or the talon APIs
+"""
 
 
 def notify(message: str):
@@ -51,6 +53,17 @@ def generate_payload(
         "Authorization": f"Bearer {TOKEN}",
     }
 
+    message = {"type": "text", "text": content}
+    if content == "__IMAGE__":
+        clipped_image = clip.image()
+        if clipped_image:
+            data = clipped_image.encode().data()
+            base64_image = base64.b64encode(data).decode("utf-8")
+            message = {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+            }
+
     data = {
         "messages": [
             {
@@ -58,32 +71,17 @@ def generate_payload(
                 "content": settings.get("user.model_system_prompt")
                 + additional_context,
             },
-            {"role": "user", "content": f"{prompt}:\n{content}"},
+            {"role": "user", "content": [{"type": "text", "text": prompt}, message]},
         ],
         "max_tokens": 2024,
         "temperature": settings.get("user.model_temperature"),
         "n": 1,
-        "stop": None,
         "model": settings.get("user.openai_model"),
     }
-
     if tools is not None:
         data["tools"] = tools
 
     return headers, data
-
-
-def remove_wrapper(text: str):
-    """Remove the string wrapper from the str representation of a command"""
-    # different command wrapper for Linux.
-    if platform.system() == "Linux":
-        regex = r"^.*?'(.*?)'.*?$"
-    else:
-        # TODO condense these regexes. Hard to test between platforms
-        # since the wrapper is slightly different
-        regex = r'[^"]+"([^"]+)"'
-    match = re.search(regex, text)
-    return match.group(1) if match else text
 
 
 def get_clipboard_image():
@@ -98,3 +96,16 @@ def get_clipboard_image():
     except Exception as e:
         print(e)
         raise Exception("Invalid image in clipboard")
+
+
+def paste_and_modify(result: str, modifier: str = ""):
+    """Paste or insert the result of a GPT query in a special way, e.g. as a snippet or selected"""
+    match modifier:
+        case "snip":
+            actions.user.insert_snippet(result)
+        case "" | _:
+            actions.user.paste(result)
+
+    # Snip is mutually exclusive with pasting, but chain can be run additionally after pasting
+    if modifier == "chain":
+        actions.user.gpt_select_last()
